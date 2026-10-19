@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Data Detective & Dice Lab</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+:root{--bg1:#3b0764;--bg2:#701a75;--card:#fff;--ink:#1e1b2e;--accent:#a855f7;--good:#16a34a;--bad:#dc2626;--muted:#6b7280;}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--card:#1f2937;--ink:#f3f4f6;--muted:#9ca3af;}}
+:root[data-theme="dark"]{--card:#1f2937;--ink:#f3f4f6;--muted:#9ca3af;}
+*{box-sizing:border-box;}
+#bgCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:0;pointer-events:none;display:block;}
+body{margin:0;font-family:'Segoe UI',system-ui,sans-serif;background:linear-gradient(135deg,var(--bg1),var(--bg2));min-height:100vh;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);display:flex;justify-content:center;padding-left:12px;padding-right:12px;}
+.wrap{width:100%;max-width:720px;padding:20px 0 40px;position:relative;z-index:1;}
+h1{color:#fff;text-align:center;margin-bottom:2px;}
+.sub{color:#f3e8ff;text-align:center;margin-bottom:14px;font-size:.9rem;}
+.tabs{display:flex;gap:8px;justify-content:center;margin-bottom:14px;flex-wrap:wrap;}
+.tab{padding:8px 14px;border-radius:20px;border:2px solid #fff3;background:transparent;color:#fff;font-weight:700;cursor:pointer;font-size:.85rem;}
+.tab.active{background:var(--accent);border-color:var(--accent);}
+.card{background:var(--card);color:var(--ink);border-radius:16px;padding:18px;box-shadow:0 10px 30px rgba(0,0,0,.35);}
+.stats{display:flex;justify-content:space-between;font-weight:600;margin-bottom:8px;font-size:.9rem;}
+.q{font-weight:600;margin:8px 0;}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+button.opt{padding:12px;border-radius:10px;border:2px solid #d1d5db;background:transparent;color:var(--ink);cursor:pointer;font-size:.95rem;}
+button.opt.correct{background:var(--good);border-color:var(--good);color:#fff;}
+button.opt.wrong{background:var(--bad);border-color:var(--bad);color:#fff;}
+.feedback{min-height:24px;margin-top:8px;font-weight:600;}
+.next{display:none;margin-top:10px;padding:10px 18px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;}
+.done{text-align:center;padding:16px;}
+.restart{margin-top:10px;padding:10px 20px;border-radius:10px;border:none;background:#3b82f6;color:#fff;font-weight:700;cursor:pointer;}
+.dataset{background:#faf5ff;color:#3b0764;border-radius:10px;padding:10px;text-align:center;font-weight:700;margin-bottom:10px;letter-spacing:1px;}
+.grid4{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0;}
+.grid4 label{font-size:.8rem;font-weight:700;}
+.grid4 input{width:100%;padding:8px;border-radius:8px;border:2px solid #d1d5db;margin-top:2px;}
+button.submit{padding:10px 16px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;margin-top:6px;}
+svg{display:block;margin:8px auto;max-width:260px;width:100%;height:auto;}
+#stage{width:100%;height:210px;border-radius:12px;background:radial-gradient(circle at 50% 30%,#faf5ff,#f3e8ff);display:block;touch-action:none;}
+.rollBtn{padding:12px 20px;border-radius:10px;border:none;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:1rem;}
+.tally{display:flex;gap:6px;justify-content:center;margin:12px 0;flex-wrap:wrap;}
+.tallyCell{background:#faf5ff;color:#3b0764;border-radius:8px;padding:8px 10px;text-align:center;min-width:44px;font-size:.8rem;}
+.compare{text-align:center;margin-top:8px;font-size:.9rem;}
+</style>
+</head>
+<body>
+<canvas id="bgCanvas"></canvas>
+<div class="wrap">
+<h1>🕵️ Data Detective & Dice Lab</h1>
+<div class="sub">Statistics, 3D graphs, and a real rolling die — one investigation</div>
+<div class="tabs">
+  <button class="tab active" id="t1">Mean/Median/Mode</button>
+  <button class="tab" id="t2">Read the Graphs</button>
+  <button class="tab" id="t3">Probability Lab</button>
+</div>
+<div class="card" id="card"></div>
+</div>
+<script>
+
+// ---------- animated 3D background ----------
+(function(){
+  const canvas=document.getElementById('bgCanvas');
+  if(!canvas || typeof THREE==='undefined') return;
+  const bgRenderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+  bgRenderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+  bgRenderer.setSize(window.innerWidth,window.innerHeight);
+  const bgScene=new THREE.Scene();
+  const bgCam=new THREE.PerspectiveCamera(55,window.innerWidth/window.innerHeight,0.1,100);
+  bgCam.position.set(0,0,9);
+  const bl=new THREE.DirectionalLight(0xffffff,1.1); bl.position.set(5,6,7); bgScene.add(bl);
+  bgScene.add(new THREE.AmbientLight(0xffffff,0.55));
+  const colors=[0xa855f7,0x7c3aed];
+  const geos=[
+    new THREE.IcosahedronGeometry(1,0),
+    new THREE.TorusGeometry(0.7,0.24,10,26),
+    new THREE.OctahedronGeometry(1,0),
+    new THREE.TetrahedronGeometry(1.05,0),
+    new THREE.TorusKnotGeometry(0.55,0.16,64,8)
+  ];
+  const shapes=[];
+  const count = window.innerWidth<520? 7 : 12;
+  for(let i=0;i<count;i++){
+    const geo=geos[i%geos.length];
+    const wire=i%2===0;
+    const mat=new THREE.MeshStandardMaterial({color:colors[i%colors.length],wireframe:wire,transparent:true,opacity:wire?0.35:0.16,roughness:0.55,metalness:0.1});
+    const mesh=new THREE.Mesh(geo,mat);
+    const scl=0.5+Math.random()*0.9;
+    mesh.scale.set(scl,scl,scl);
+    mesh.position.set((Math.random()-0.5)*16,(Math.random()-0.5)*16,(Math.random()-0.5)*10-3);
+    mesh.rotation.set(Math.random()*Math.PI*2,Math.random()*Math.PI*2,Math.random()*Math.PI*2);
+    mesh.userData.rot={x:(Math.random()-0.5)*0.006,y:(Math.random()-0.5)*0.007};
+    mesh.userData.driftY=(Math.random()*0.006+0.002)*(Math.random()<0.5?1:-1);
+    bgScene.add(mesh); shapes.push(mesh);
+  }
+  function resizeBg(){ bgRenderer.setSize(window.innerWidth,window.innerHeight); bgCam.aspect=window.innerWidth/window.innerHeight; bgCam.updateProjectionMatrix(); }
+  window.addEventListener('resize',resizeBg);
+  function animateBg(){
+    requestAnimationFrame(animateBg);
+    shapes.forEach(s=>{
+      s.rotation.x+=s.userData.rot.x; s.rotation.y+=s.userData.rot.y;
+      s.position.y+=s.userData.driftY;
+      if(s.position.y>9) s.position.y=-9; if(s.position.y<-9) s.position.y=9;
+    });
+    bgCam.position.x = Math.sin(Date.now()*0.00007)*1.5;
+    bgCam.lookAt(0,0,0);
+    bgRenderer.render(bgScene,bgCam);
+  }
+  animateBg();
+})();
+function r(a,b){return Math.floor(a+Math.random()*(b-a+1));}
+
+// ---------- shared three.js ----------
+let renderer, scene, camera, group;
+function ensureThree(){
+  if(renderer) return;
+  const canvas=document.getElementById('stage'); if(!canvas) return;
+  renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+  scene=new THREE.Scene();
+  camera=new THREE.PerspectiveCamera(45,1,0.1,100);
+  camera.position.set(2.6,2.6,4.2); camera.lookAt(0,0.3,0);
+  const light=new THREE.DirectionalLight(0xffffff,1.1); light.position.set(4,6,5); scene.add(light);
+  scene.add(new THREE.AmbientLight(0xffffff,0.75));
+  group=new THREE.Group(); scene.add(group);
+  resizeStage();
+  animate();
+}
+function resizeStage(){
+  const canvas=document.getElementById('stage'); if(!canvas||!renderer) return;
+  const w=canvas.clientWidth||400, h=210;
+  renderer.setSize(w,h,false); camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize',resizeStage);
+function animate(){ requestAnimationFrame(animate); if(renderer && document.getElementById('stage')) renderer.render(scene,camera); }
+function clearGroup(){ if(!group) return; while(group.children.length){ const c=group.children.pop(); c.geometry&&c.geometry.dispose(); group.remove(c); } }
+function diceFaceTexture(n){
+  const c=document.createElement('canvas'); c.width=128;c.height=128;
+  const ctx=c.getContext('2d'); ctx.fillStyle='#fdf4ff'; ctx.fillRect(0,0,128,128);
+  ctx.strokeStyle='#a855f7'; ctx.lineWidth=6; ctx.strokeRect(4,4,120,120);
+  ctx.fillStyle='#581c87';
+  const dot=(x,y)=>{ctx.beginPath();ctx.arc(x,y,11,0,7);ctx.fill();};
+  const pos={c:[64,64],tl:[36,36],tr:[92,36],bl:[36,92],br:[92,92],ml:[36,64],mr:[92,64]};
+  const layouts={1:['c'],2:['tl','br'],3:['tl','c','br'],4:['tl','tr','bl','br'],5:['tl','tr','c','bl','br'],6:['tl','tr','ml','mr','bl','br']};
+  layouts[n].forEach(k=>dot(pos[k][0],pos[k][1]));
+  return new THREE.CanvasTexture(c);
+}
+function buildDie(){
+  const mats=[1,2,3,4,5,6].map(n=>new THREE.MeshStandardMaterial({map:diceFaceTexture(n)}));
+  // three.js BoxGeometry face order: +x,-x,+y,-y,+z,-z -> map to die faces so opposite faces sum to 7
+  const order=[1,6,2,5,3,4]; // arbitrary valid assignment where opposite pairs sum to 7 (1-6,2-5,3-4)
+  const orderedMats=order.map(n=>mats[n-1]);
+  const geo=new THREE.BoxGeometry(1.4,1.4,1.4);
+  return {mesh:new THREE.Mesh(geo,orderedMats), faceForNormal:order};
+}
+let die=null, rolling=false;
+function initDieScene(){
+  ensureThree(); clearGroup();
+  die=buildDie(); group.add(die.mesh);
+  die.mesh.rotation.set(0.4,0.6,0);
+}
+const faceRotations={ // rotation.set(x,y,z) that brings each number to face the camera (+z-ish), tuned for our face order [1,6,2,5,3,4] on [+x,-x,+y,-y,+z,-z]
+  1:[0,Math.PI/2,0], 2:[-Math.PI/2,0,0], 3:[0,0,0], 4:[0,Math.PI,0], 5:[Math.PI/2,0,0], 6:[0,-Math.PI/2,0]
+};
+function animateRollTo(face,cb){
+  if(!die||rolling){ cb&&cb(); return; }
+  rolling=true;
+  const target=faceRotations[face];
+  const extraX=Math.PI*2*(2+Math.random()), extraY=Math.PI*2*(2+Math.random());
+  const startX=die.mesh.rotation.x, startY=die.mesh.rotation.y, startZ=die.mesh.rotation.z;
+  const endX=target[0]+extraX, endY=target[1]+extraY, endZ=target[2];
+  const dur=650; const t0=performance.now();
+  function step(t){
+    const p=Math.min(1,(t-t0)/dur);
+    const ease=1-Math.pow(1-p,3);
+    die.mesh.rotation.x=startX+(endX-startX)*ease;
+    die.mesh.rotation.y=startY+(endY-startY)*ease;
+    die.mesh.rotation.z=startZ+(endZ-startZ)*ease;
+    if(p<1) requestAnimationFrame(step); else { rolling=false; cb&&cb(); }
+  }
+  requestAnimationFrame(step);
+}
+
+// ---------- TAB 1: mean/median/mode/range + grouped vs ungrouped ----------
+let dataset=[], t1score=0, t1stage=0;
+const guQuestions=[
+  {text:"A teacher records each student's exact test score: 45, 67, 78, 52... Is this grouped or ungrouped data?", correct:"Ungrouped"},
+  {text:"A survey reports: 0–10 marks: 5 students, 11–20 marks: 12 students, 21–30 marks: 8 students. Is this grouped or ungrouped data?", correct:"Grouped"},
+  {text:"A list of the ages of every player on a cricket team, one age per player, is an example of...", correct:"Ungrouped"}
+];
+function genDataset(){ dataset=[r(2,10),r(2,10),r(2,10),r(2,10),r(2,10),r(2,10),r(2,10)]; }
+function statsOf(arr){
+  const sum=arr.reduce((a,b)=>a+b,0);
+  const mean=Math.round((sum/arr.length)*100)/100;
+  const sorted=[...arr].sort((a,b)=>a-b);
+  const median=sorted[Math.floor(sorted.length/2)];
+  const freq={}; arr.forEach(v=>freq[v]=(freq[v]||0)+1);
+  let mode=arr[0],mc=0; for(const k in freq){ if(freq[k]>mc){mc=freq[k];mode=parseInt(k);} }
+  const range=Math.max(...arr)-Math.min(...arr);
+  return {mean,median,mode,range};
+}
+function startT1(){ genDataset(); t1score=0; t1stage=0; renderT1(); }
+function renderT1(){
+  const card=document.getElementById('card');
+  if(t1stage===0){
+    card.innerHTML=`<div class="stats"><span>Step 1 of 2</span><span>Score: ${t1score}</span></div>
+    <div class="q">A cricket coach records runs scored in ${dataset.length} matches:</div>
+    <div class="dataset">${dataset.join(', ')}</div>
+    <div class="grid4">
+      <label>Mean<input type="number" id="mMean" step="any"></label>
+      <label>Median<input type="number" id="mMedian"></label>
+      <label>Mode<input type="number" id="mMode"></label>
+      <label>Range<input type="number" id="mRange"></label>
+    </div>
+    <button class="submit" id="checkT1">Check All</button>
+    <div class="feedback" id="fb1"></div>
+    <button class="next" id="nextT1">Next ▶</button>`;
+    document.getElementById('checkT1').onclick=()=>{
+      const s=statsOf(dataset);
+      const got={mean:parseFloat(document.getElementById('mMean').value),median:parseFloat(document.getElementById('mMedian').value),mode:parseFloat(document.getElementById('mMode').value),range:parseFloat(document.getElementById('mRange').value)};
+      let right=0;
+      if(Math.abs(got.mean-s.mean)<0.06) right++;
+      if(got.median===s.median) right++;
+      if(got.mode===s.mode) right++;
+      if(got.range===s.range) right++;
+      t1score += right;
+      document.getElementById('fb1').innerHTML = right===4? '✅ All correct!' : `You got ${right}/4. Correct: Mean=${s.mean}, Median=${s.median}, Mode=${s.mode}, Range=${s.range}`;
+      document.getElementById('fb1').style.color = right===4? 'var(--good)':'var(--bad)';
+      document.getElementById('checkT1').disabled=true;
+      document.getElementById('nextT1').style.display='inline-block';
+    };
+  } else if(t1stage>=1 && t1stage<=3){
+    const q=guQuestions[t1stage-1];
+    card.innerHTML=`<div class="stats"><span>Grouped vs Ungrouped ${t1stage} of 3</span><span>Score: ${t1score}</span></div>
+    <div class="q">${q.text}</div>
+    <div class="opts" id="opts"></div><div class="feedback" id="fb1"></div>
+    <button class="next" id="nextT1">Next ▶</button>`;
+    ['Grouped','Ungrouped'].forEach(o=>{
+      const b=document.createElement('button'); b.className='opt'; b.textContent=o;
+      b.onclick=()=>{
+        document.querySelectorAll('.opt').forEach(x=>x.disabled=true);
+        if(o===q.correct){ b.classList.add('correct'); t1score++; document.getElementById('fb1').textContent='✅ Correct!'; document.getElementById('fb1').style.color='var(--good)'; }
+        else{ b.classList.add('wrong'); document.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===q.correct) x.classList.add('correct'); });
+          document.getElementById('fb1').textContent=`❌ Correct: ${q.correct}`; document.getElementById('fb1').style.color='var(--bad)'; }
+        document.getElementById('nextT1').style.display='inline-block';
+      };
+      document.getElementById('opts').appendChild(b);
+    });
+  } else {
+    card.innerHTML=`<div class="done"><h2>🏁 Done!</h2><p>Score: <b>${t1score} / 7</b></p>
+    <p style="color:var(--muted);font-size:.9rem;">Covers: mean, median, mode, range of ungrouped data; distinguishing grouped vs ungrouped data.</p>
+    <button class="restart" onclick="startT1()">Play Again</button></div>`;
+  }
+}
+document.addEventListener('click',e=>{ if(e.target && e.target.id==='nextT1'){ t1stage++; renderT1(); }});
+
+// ---------- TAB 2: 3D bar chart + pie graph ----------
+const fruitData=[{name:'Mango',v:12,color:0xf59e0b},{name:'Apple',v:8,color:0xef4444},{name:'Banana',v:15,color:0xeab308},{name:'Grapes',v:5,color:0x22c55e}];
+let t2score=0, t2i=0, t2qs=[];
+function buildT2(){
+  t2qs=[
+    {kind:'bar',text:'Which fruit is the most popular?',opts:fruitData.map(f=>f.name),correct:'Banana'},
+    {kind:'bar',text:'How many students chose Mango?',opts:['8','12','15','5'],correct:'12'},
+    {kind:'bar',text:'What is the total number of students surveyed?',opts:['30','40','35','45'],correct:String(fruitData.reduce((a,b)=>a+b.v,0))},
+    {kind:'pie',text:'In the pie chart, which slice is the largest?',opts:['Cricket','Football','Hockey','Badminton'],correct:'Cricket'},
+    {kind:'pie',text:'If 40 students were surveyed and Cricket = 50%, how many chose Cricket?',opts:['10','15','20','25'],correct:'20'}
+  ];
+}
+function build3DBar(){
+  ensureThree(); clearGroup();
+  camera.position.set(3,2.8,4.5); camera.lookAt(0,0.6,0);
+  const maxV=Math.max(...fruitData.map(f=>f.v));
+  fruitData.forEach((f,i)=>{
+    const h=(f.v/maxV)*2.2;
+    const geo=new THREE.BoxGeometry(0.55,h,0.55);
+    const mat=new THREE.MeshStandardMaterial({color:f.color});
+    const bar=new THREE.Mesh(geo,mat);
+    bar.position.set(-1.2+i*0.8,h/2,0);
+    group.add(bar);
+  });
+  const baseGeo=new THREE.BoxGeometry(3.6,0.06,0.8);
+  group.add(new THREE.Mesh(baseGeo,new THREE.MeshStandardMaterial({color:0xd8b4fe})));
+}
+function drawPie(){
+  const NS="http://www.w3.org/2000/svg";
+  const svg=document.createElementNS(NS,'svg'); svg.setAttribute('viewBox','0 0 200 200');
+  const data=[{name:'Cricket',v:50,color:'#a855f7'},{name:'Football',v:25,color:'#3b82f6'},{name:'Hockey',v:15,color:'#f59e0b'},{name:'Badminton',v:10,color:'#22c55e'}];
+  let start=-90;
+  data.forEach(d=>{
+    const angle=(d.v/100)*360; const end=start+angle; const large=angle>180?1:0;
+    const cx=100,cy=100,rad=80;
+    const x1=cx+rad*Math.cos(Math.PI*start/180), y1=cy+rad*Math.sin(Math.PI*start/180);
+    const x2=cx+rad*Math.cos(Math.PI*end/180), y2=cy+rad*Math.sin(Math.PI*end/180);
+    const path=document.createElementNS(NS,'path');
+    path.setAttribute('d',`M${cx},${cy} L${x1},${y1} A${rad},${rad} 0 ${large} 1 ${x2},${y2} Z`);
+    path.setAttribute('fill',d.color);
+    svg.appendChild(path); start=end;
+  });
+  return svg;
+}
+function startT2(){ t2score=0; t2i=0; buildT2(); renderT2(); }
+function renderT2(){
+  const card=document.getElementById('card');
+  if(t2i>=t2qs.length){
+    card.innerHTML=`<div class="done"><h2>🏁 Done!</h2><p>Score: <b>${t2score} / ${t2qs.length}</b></p>
+    <p style="color:var(--muted);font-size:.9rem;">Covers: reading and interpreting bar graphs and pie graphs.</p>
+    <button class="restart" onclick="startT2()">Play Again</button></div>`;
+    return;
+  }
+  const q=t2qs[t2i];
+  if(q.kind==='bar'){
+    card.innerHTML=`<div class="stats"><span>Question ${t2i+1} of ${t2qs.length}</span><span>Score: ${t2score}</span></div>
+    <canvas id="stage"></canvas>
+    <div class="q">${q.text}</div><div class="opts" id="opts"></div><div class="feedback" id="fb2"></div>
+    <button class="next" id="nextT2">Next ▶</button>`;
+    build3DBar();
+  } else {
+    card.innerHTML=`<div class="stats"><span>Question ${t2i+1} of ${t2qs.length}</span><span>Score: ${t2score}</span></div>
+    <div id="graphHolder"></div>
+    <div class="q">${q.text}</div><div class="opts" id="opts"></div><div class="feedback" id="fb2"></div>
+    <button class="next" id="nextT2">Next ▶</button>`;
+    document.getElementById('graphHolder').appendChild(drawPie());
+  }
+  q.opts.forEach(o=>{
+    const b=document.createElement('button'); b.className='opt'; b.textContent=o;
+    b.onclick=()=>{
+      document.querySelectorAll('.opt').forEach(x=>x.disabled=true);
+      if(o===q.correct){ b.classList.add('correct'); t2score++; document.getElementById('fb2').textContent='✅ Correct!'; document.getElementById('fb2').style.color='var(--good)'; }
+      else{ b.classList.add('wrong'); document.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===q.correct) x.classList.add('correct'); });
+        document.getElementById('fb2').textContent=`❌ Correct: ${q.correct}`; document.getElementById('fb2').style.color='var(--bad)'; }
+      document.getElementById('nextT2').style.display='inline-block';
+    };
+    document.getElementById('opts').appendChild(b);
+  });
+}
+document.addEventListener('click',e=>{ if(e.target && e.target.id==='nextT2'){ t2i++; renderT2(); }});
+
+// ---------- TAB 3: probability lab with real rolling 3D die ----------
+let tallies=[0,0,0,0,0,0], totalRolls=0, chosenFace=3, t3stage=0, t3score=0;
+const probQs=[
+  {text:"You roll a die 60 times and get a '6' only 8 times, even though theory predicts 10. This 8/60 result is called the...", opts:['Theoretical probability','Experimental probability'], correct:'Experimental probability'},
+  {text:"A bag has 3 red balls and 2 blue balls. What is the theoretical probability of drawing a red ball?", opts:['3/5','2/5','3/2','1/5'], correct:'3/5'},
+  {text:"Before rolling any dice, you calculate P(rolling a 4) = 1/6 using logic alone. This is the...", opts:['Experimental probability','Theoretical probability'], correct:'Theoretical probability'},
+  {text:"A spinner has 4 equal colours. What is the theoretical probability of landing on red?", opts:['1/2','1/4','1/3','1/5'], correct:'1/4'}
+];
+function startT3(){ tallies=[0,0,0,0,0,0]; totalRolls=0; t3stage=0; t3score=0; renderT3(); }
+function renderT3(){
+  const card=document.getElementById('card');
+  if(t3stage===0){
+    card.innerHTML=`<div class="stats"><span>Dice Experiment</span><span>Rolls: ${totalRolls}</span></div>
+    <canvas id="stage"></canvas>
+    <div class="q">Pick a face to track, then roll the die and compare experimental vs theoretical probability.</div>
+    <div class="opts" id="faceOpts" style="grid-template-columns:repeat(6,1fr);"></div>
+    <div style="text-align:center;margin-top:10px;"><button class="rollBtn" id="rollOnce">Roll ×1</button> <button class="rollBtn" id="rollTen">Roll ×10</button></div>
+    <div class="tally" id="tallyRow"></div>
+    <div class="compare" id="compareRow"></div>
+    <div style="text-align:center;"><button class="submit" id="toQuiz">Continue to Quiz ▶</button></div>`;
+    initDieScene();
+    const faceOptsEl=document.getElementById('faceOpts');
+    for(let f=1;f<=6;f++){
+      const b=document.createElement('button'); b.className='opt'; b.style.padding='8px'; b.textContent=f;
+      if(f===chosenFace) b.classList.add('correct');
+      b.onclick=()=>{ chosenFace=f; renderT3(); };
+      faceOptsEl.appendChild(b);
+    }
+    updateTallyDisplay();
+    document.getElementById('rollOnce').onclick=()=>{ rollDiceAnimated(1); };
+    document.getElementById('rollTen').onclick=()=>{ rollDiceAnimated(10); };
+    document.getElementById('toQuiz').onclick=()=>{ t3stage=1; renderT3(); };
+  } else if(t3stage>=1 && t3stage<=probQs.length){
+    const q=probQs[t3stage-1];
+    card.innerHTML=`<div class="stats"><span>Probability Quiz ${t3stage} of ${probQs.length}</span><span>Score: ${t3score}</span></div>
+    <div class="q">${q.text}</div><div class="opts" id="opts"></div><div class="feedback" id="fb3"></div>
+    <button class="next" id="nextT3">Next ▶</button>`;
+    q.opts.forEach(o=>{
+      const b=document.createElement('button'); b.className='opt'; b.textContent=o;
+      b.onclick=()=>{
+        document.querySelectorAll('.opt').forEach(x=>x.disabled=true);
+        if(o===q.correct){ b.classList.add('correct'); t3score++; document.getElementById('fb3').textContent='✅ Correct!'; document.getElementById('fb3').style.color='var(--good)'; }
+        else{ b.classList.add('wrong'); document.querySelectorAll('.opt').forEach(x=>{ if(x.textContent===q.correct) x.classList.add('correct'); });
+          document.getElementById('fb3').textContent=`❌ Correct: ${q.correct}`; document.getElementById('fb3').style.color='var(--bad)'; }
+        document.getElementById('nextT3').style.display='inline-block';
+      };
+      document.getElementById('opts').appendChild(b);
+    });
+  } else {
+    card.innerHTML=`<div class="done"><h2>🏁 Done!</h2><p>Quiz score: <b>${t3score} / ${probQs.length}</b></p>
+    <p style="color:var(--muted);font-size:.9rem;">Covers: probability as a ratio, and the difference between experimental and theoretical probability.</p>
+    <button class="restart" onclick="startT3()">Play Again</button></div>`;
+  }
+}
+function rollDiceAnimated(n){
+  const rollBtns=document.querySelectorAll('.rollBtn'); rollBtns.forEach(b=>b.disabled=true);
+  let done=0;
+  function one(){
+    const roll=1+Math.floor(Math.random()*6);
+    animateRollTo(roll,()=>{
+      tallies[roll-1]++; totalRolls++; updateTallyDisplay(); done++;
+      if(done<n) setTimeout(one,120); else rollBtns.forEach(b=>b.disabled=false);
+    });
+  }
+  one();
+}
+function updateTallyDisplay(){
+  const row=document.getElementById('tallyRow'); if(!row)return;
+  row.innerHTML='';
+  for(let f=1;f<=6;f++){
+    const d=document.createElement('div'); d.className='tallyCell';
+    d.innerHTML=`<div>${f}</div><div>${tallies[f-1]}</div>`;
+    row.appendChild(d);
+  }
+  const cmp=document.getElementById('compareRow');
+  const exp = totalRolls>0? (tallies[chosenFace-1]/totalRolls).toFixed(2) : '—';
+  cmp.innerHTML = `Experimental P(${chosenFace}) = ${tallies[chosenFace-1]}/${totalRolls||0} ≈ ${exp} &nbsp;|&nbsp; Theoretical P(${chosenFace}) = 1/6 ≈ 0.17`;
+  const rr=document.getElementById('rollTen'); if(rr) rr.onclick=()=>rollDiceAnimated(10);
+  const ro=document.getElementById('rollOnce'); if(ro) ro.onclick=()=>rollDiceAnimated(1);
+}
+
+function switchTab(n){
+  document.getElementById('t1').classList.toggle('active',n===1);
+  document.getElementById('t2').classList.toggle('active',n===2);
+  document.getElementById('t3').classList.toggle('active',n===3);
+  if(n===1) startT1(); else if(n===2) startT2(); else startT3();
+}
+document.getElementById('t1').onclick=()=>switchTab(1);
+document.getElementById('t2').onclick=()=>switchTab(2);
+document.getElementById('t3').onclick=()=>switchTab(3);
+switchTab(1);
+</script>
+</body>
+</html>
